@@ -80,6 +80,14 @@ const DropOffForm = ({ onBack }) => {
   const [mapAddress, setMapAddress] = useState('');
   const [flyToCoords, setFlyToCoords] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
+
+  // State for Pickup Map
+  const [pickupSearchQuery, setPickupSearchQuery] = useState('');
+  const [pickupMapPosition, setPickupMapPosition] = useState(null);
+  const [pickupMapAddress, setPickupMapAddress] = useState('');
+  const [pickupFlyToCoords, setPickupFlyToCoords] = useState(null);
+  const [isPickupSearching, setIsPickupSearching] = useState(false);
+
   const [priceDetails, setPriceDetails] = useState(null);
   const [isCalculating, setIsCalculating] = useState(false);
 
@@ -100,11 +108,32 @@ const DropOffForm = ({ onBack }) => {
     return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
   };
 
+  /* ================= SEARCH HELPERS ================= */
+  const handlePickupSearch = async (queryOverride) => {
+    const q = queryOverride || formData.pickupLocation;
+    if (!q) return;
+    setIsPickupSearching(true);
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q + ", Indonesia")}&format=json&limit=1`);
+      const data = await res.json();
+      if (data.length > 0) {
+        const pos = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+        setPickupMapPosition(pos);
+        setPickupMapAddress(data[0].display_name);
+        setPickupFlyToCoords(pos);
+      }
+    } catch (err) {
+      console.error("Pickup search error:", err);
+    } finally {
+      setIsPickupSearching(false);
+    }
+  };
+
   const handleSearch = async () => {
     if (!searchQuery) return;
     setIsSearching(true);
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1`);
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery + ", Indonesia")}&format=json&limit=1`);
       const data = await res.json();
       if (data.length > 0) {
         const pos = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
@@ -122,48 +151,54 @@ const DropOffForm = ({ onBack }) => {
     }
   };
 
-const checkPrice = async () => {
-    // 1. Validasi Input
-    if (!formData.pickupLocation.trim() || !mapPosition) {
-      alert('Harap isi Nama Lokasi Jemput dan pilih Tujuan di peta.');
-      return;
+  // Auto-search for Pickup
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (formData.pickupLocation && formData.pickupLocation.length > 3) {
+        handlePickupSearch();
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [formData.pickupLocation]);
+
+  // Auto-search for Destination
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchQuery && searchQuery.length > 3) {
+        handleSearch();
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Auto-calculate price when locations change
+  useEffect(() => {
+    if (pickupMapPosition && mapPosition) {
+        checkPrice();
     }
+  }, [pickupMapPosition, mapPosition]);
+
+  const checkPrice = async () => {
+    if (!pickupMapPosition || !mapPosition) return;
 
     setIsCalculating(true);
     try {
-      // 2. Tambahkan kata kunci "Indonesia" atau Kota spesifik agar pencarian lebih akurat
-      const query = `${formData.pickupLocation}, Indonesia`;
-      
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`
+      const distance = calculateDistance(
+        pickupMapPosition.lat,
+        pickupMapPosition.lng,
+        mapPosition.lat,
+        mapPosition.lng
       );
-      const data = await res.json();
+      
+      const baseCost = 12000;
+      const total = distance <= 3 ? baseCost : baseCost + Math.round((distance - 3) * 5000);
 
-      if (data && data.length > 0) {
-        const pickupLat = parseFloat(data[0].lat);
-        const pickupLon = parseFloat(data[0].lon);
-
-        const distance = calculateDistance(
-          pickupLat,
-          pickupLon,
-          mapPosition.lat,
-          mapPosition.lng
-        );
-        
-        const baseCost = 12000;
-        const total = distance <= 3 ? baseCost : baseCost + Math.round((distance - 3) * 5000);
-
-        setPriceDetails({
-          distance: distance.toFixed(1),
-          total: total,
-        });
-      } else {
-        // Jika tidak ditemukan, beri saran kepada user
-        alert('Lokasi jemput tidak spesifik. Coba tambahkan nama kota (Contoh: "Tanah Abang, Jakarta")');
-      }
+      setPriceDetails({
+        distance: distance.toFixed(1),
+        total: total,
+      });
     } catch (error) {
-      console.error("Error fetching location:", error);
-      alert('Gagal terhubung ke server peta. Periksa koneksi internet Anda.');
+      console.error("Error calculating price:", error);
     } finally {
       setIsCalculating(false);
     }
@@ -181,13 +216,19 @@ const checkPrice = async () => {
         return;
     }
 
-    const mapLink = `https://www.google.com/maps?q=${mapPosition.lat},${mapPosition.lng}`;
+    const pickupLink = `https://www.google.com/maps?q=${pickupMapPosition.lat},${pickupMapPosition.lng}`;
+    const destinationLink = `https://www.google.com/maps?q=${mapPosition.lat},${mapPosition.lng}`;
+    
     const message = `*Order Antar Lokasi*
 Nama: ${formData.name}
 No HP: ${formData.phone}
-Titik Jemput: ${formData.pickupLocation}
+
+Titik Jemput: ${pickupMapAddress || formData.pickupLocation}
+Link Jemput: ${pickupLink}
+
 Tujuan: ${mapAddress}
-Link Map: ${mapLink}
+Link Tujuan: ${destinationLink}
+
 Tanggal: ${formData.date}
 Jam: ${formData.time}
 
@@ -220,15 +261,79 @@ Metode: ${formData.paymentMethod === 'qris' ? 'QRIS' : 'Tunai'}`;
             <input name="phone" type="tel" placeholder="Nomor WhatsApp" value={formData.phone} onChange={handleChange} required className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 focus:outline-none focus:border-purple-500" />
           </div>
 
-          <div className="relative">
-            <Navigation className="absolute left-3 top-3.5 text-gray-500 w-5 h-5" />
-            <input name="pickupLocation" placeholder="Titik Penjemputan" value={formData.pickupLocation} onChange={handleChange} required className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4" />
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+              <Navigation size={16} /> Pilih Titik Jemput
+            </label>
+            <div className="flex gap-2">
+              <div className="relative flex-grow">
+                <Navigation className="absolute left-3 top-3.5 text-gray-500 w-5 h-5" />
+                <input 
+                  name="pickupLocation" 
+                  placeholder="Titik Penjemputan" 
+                  value={formData.pickupLocation} 
+                  onChange={handleChange} 
+                  required 
+                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 focus:outline-none focus:border-purple-500" 
+                />
+              </div>
+              <button 
+                type="button" 
+                onClick={() => handlePickupSearch()} 
+                disabled={isPickupSearching} 
+                className="bg-purple-600 p-3 rounded-xl text-white"
+              >
+                {isPickupSearching ? <span className="animate-spin text-xs">...</span> : <Search size={20} />}
+              </button>
+            </div>
+            <div className="w-full h-[200px] rounded-xl overflow-hidden border border-white/10 z-0">
+              <MapContainer center={[-6.2000, 106.8166]} zoom={13} style={{ height: '100%', width: '100%' }}>
+                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                <LocationMarker 
+                  setPosition={setPickupMapPosition} 
+                  setAddress={(addr) => { 
+                    setPickupMapAddress(addr); 
+                    setFormData(p => ({...p, pickupLocation: addr})); 
+                  }} 
+                />
+                <MapUpdater center={pickupFlyToCoords} />
+              </MapContainer>
+            </div>
+            <p className="text-[10px] text-gray-500 truncate">{pickupMapAddress || "Klik peta untuk menentukan jemput"}</p>
           </div>
 
           <div className="flex gap-4">
             <input name="date" type="date" value={formData.date} onChange={handleChange} required className="flex-1 bg-white/5 border border-white/10 rounded-xl py-3 px-4 [color-scheme:dark]" />
             <input name="time" type="time" value={formData.time} onChange={handleChange} required className="flex-1 bg-white/5 border border-white/10 rounded-xl py-3 px-4 [color-scheme:dark]" />
           </div>
+        </div>
+
+        {/* Map Section - Destination */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-gray-300 flex items-center gap-2"><MapPin size={16} /> Pilih Tujuan di Peta</label>
+          <div className="flex gap-2">
+            <div className="relative flex-grow">
+              <MapPin className="absolute left-3 top-3.5 text-gray-500 w-5 h-5" />
+              <input 
+                type="text" 
+                placeholder="Cari tujuan..." 
+                value={searchQuery} 
+                onChange={(e) => setSearchQuery(e.target.value)} 
+                className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 focus:outline-none focus:border-purple-500" 
+              />
+            </div>
+            <button type="button" onClick={handleSearch} disabled={isSearching} className="bg-purple-600 p-3 rounded-xl text-white">
+              {isSearching ? <span className="animate-spin text-xs">...</span> : <Search size={20} />}
+            </button>
+          </div>
+          <div className="w-full h-[200px] rounded-xl overflow-hidden border border-white/10 z-0">
+            <MapContainer center={[-6.2000, 106.8166]} zoom={13} style={{ height: '100%', width: '100%' }}>
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              <LocationMarker setPosition={setMapPosition} setAddress={(addr) => { setMapAddress(addr); setSearchQuery(addr); }} />
+              <MapUpdater center={flyToCoords} />
+            </MapContainer>
+          </div>
+          <p className="text-[10px] text-gray-500 truncate">{mapAddress || "Klik peta untuk menentukan tujuan"}</p>
         </div>
 
         {/* Payment Methods */}
@@ -249,25 +354,6 @@ Metode: ${formData.paymentMethod === 'qris' ? 'QRIS' : 'Tunai'}`;
               <p className="text-black text-xs mt-2 text-center font-bold">SCAN UNTUK BAYAR</p>
             </div>
           )}
-        </div>
-
-        {/* Map Section */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-300 flex items-center gap-2"><MapPin size={16} /> Pilih Tujuan di Peta</label>
-          <div className="flex gap-2">
-            <input type="text" placeholder="Cari tujuan..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="flex-grow bg-white/5 border border-white/10 rounded-xl py-3 px-4" />
-            <button type="button" onClick={handleSearch} disabled={isSearching} className="bg-purple-600 p-3 rounded-xl text-white">
-              {isSearching ? <span className="animate-spin text-xs">...</span> : <Search size={20} />}
-            </button>
-          </div>
-          <div className="w-full h-[250px] rounded-xl overflow-hidden border border-white/10 z-0">
-            <MapContainer center={[-6.2000, 106.8166]} zoom={13} style={{ height: '100%', width: '100%' }}>
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              <LocationMarker setPosition={setMapPosition} setAddress={(addr) => { setMapAddress(addr); setSearchQuery(addr); }} />
-              <MapUpdater center={flyToCoords} />
-            </MapContainer>
-          </div>
-          <p className="text-[10px] text-gray-500 truncate">{mapAddress || "Klik peta untuk menentukan tujuan"}</p>
         </div>
 
         {/* Pricing Results */}
