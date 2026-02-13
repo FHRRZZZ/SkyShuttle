@@ -91,7 +91,7 @@ const DropOffForm = ({ onBack }) => {
   const [priceDetails, setPriceDetails] = useState(null);
   const [isCalculating, setIsCalculating] = useState(false);
 
-  const PHONE_NUMBER = '6282289191926';
+  const PHONE_NUMBER = '';
   const STATIC_QRIS_Data = '00020101021126570014ID.CO.QRIS.WWW01189360091431432263430215ID10200213035360303UMI51440014ID.CO.QRIS.WWW0215ID10200213035365204481453033605802ID5919SkyShuttle Payment6014Jakarta Selat61051214062070703A0163046B23';
 
   const handleChange = (e) => {

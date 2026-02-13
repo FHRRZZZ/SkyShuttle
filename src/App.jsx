@@ -11,7 +11,7 @@ function App() {
 
   const handleNavigate = (target) => {
     if (target === 'contact') {
-      openWhatsApp("6282289191926", "Halo, saya ingin bertanya tentang layanan SkyShuttle.");
+      openWhatsApp("", "Halo, saya ingin bertanya tentang layanan SkyShuttle.");
       return;
     }
 

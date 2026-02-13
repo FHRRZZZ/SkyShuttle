@@ -14,7 +14,7 @@ const CharterForm = ({ onBack }) => {
     destination: ''
   });
 
-  const PHONE_NUMBER = "6282289191926";
+  const PHONE_NUMBER = "";
 
   const handleChange = (e) => {
     const { name, value } = e.target;
